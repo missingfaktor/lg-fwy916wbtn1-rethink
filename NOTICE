@@ -1,0 +1,6 @@
+This package integrates with and contains modifications for anszom/rethink.
+Upstream: https://github.com/anszom/rethink
+Pinned revision: 0de21e2e1962ef631a67780e7de85bc899857043
+Rethink includes GNU GPL version 2 in its COPYING file; retained here as LICENSE.
+The upstream project and this package are independent of LG Electronics.
+Test fixtures in this package are generated and contain no real device identities.

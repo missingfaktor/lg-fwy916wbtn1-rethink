@@ -1,0 +1,278 @@
+diff --git a/cloud/devices/Y_V8_F___W.B32QEUK.ts b/cloud/devices/Y_V8_F___W.B32QEUK.ts
+new file mode 100644
+index 0000000..b204058
+--- /dev/null
++++ b/cloud/devices/Y_V8_F___W.B32QEUK.ts
+@@ -0,0 +1,119 @@
++import HADevice from './base'
++import AABBDevice from './aabb_device'
++import { Device as Thinq2Device } from '../thinq2/device'
++import { type Connection } from '../homeassistant'
++import { type Metadata } from '../thinq'
++import { allowExtendedType } from '@/util/casting'
++import { TEMPERATURES, SPINS } from './washer_common'
++import { createHash, randomUUID } from 'node:crypto'
++
++export type StartPreview = {
++    enabled: boolean
++    reason: string | null
++    revision?: string
++    command?: string
++}
++
++// Local trial: FWY916WBTN1, RTL8720cm 2.11.207, protocol 4.9 in SoftAP.
++// Verified on this unit by power off/on, Cotton 40 C / 1400 rpm, and toggling Dry.
++// Status uses the 39-byte record shared by this model's immediate siblings.
++// Course tables are model-specific; keep unconfirmed codes visibly numeric.
++const COURSES: Record<number,string> = {0:'Not selected', 1:'Cotton'}
++const STATES: Record<number,string> = {0:'Off',1:'Standby'}
++const DRYING: Record<number,string> = {0:'Off',2:'On (automatic)'}
++export default class Device extends AABBDevice {
++    receivedPackets = 0
++    private reportedState?: Buffer
++    private reportedAt = 0
++    private reportedVersion = 0
++    private startRequestedVersion?: number
++    private readonly session = randomUUID()
++    constructor(HA: Connection, thinq: Thinq2Device, meta: Metadata, private readonly now = Date.now) {
++        super(HA, thinq, true)
++        this.setConfig(allowExtendedType({
++            ...HADevice.config(meta, { name: 'LG Washer Dryer' }),
++            components: {
++                ...Object.fromEntries([
++                    ['status','Status'],['course','Programme'],['temp','Temperature'],
++                    ['spin','Spin speed'],['drying_mode','Drying'],
++                ].map(([key,name])=>[key,{platform:'sensor',unique_id:'$deviceid-'+key,name,state_topic:'$this/'+key}])),
++                ...Object.fromEntries([
++                    ['initial_time','Selected programme time'],['remaining_time','Remaining time'],
++                ].map(([key,name])=>[key,{platform:'sensor',unique_id:'$deviceid-'+key,name,state_topic:'$this/'+key,
++                    device_class:'duration',unit_of_measurement:'min'}])),
++                received_packets: {
++                    platform: 'sensor',
++                    unique_id: '$deviceid-received-packets',
++                    name: 'Received packets',
++                    state_topic: '$this/received_packets',
++                    entity_category: 'diagnostic',
++                },
++            },
++        }))
++    }
++
++    processAABB(buf: Buffer) {
++        this.publishProperty('received_packets', ++this.receivedPackets)
++        this.publishProperty('raw_packet', buf.toString('hex'))
++        this.processEnvelopedStatus(buf,0x20,39,this.processState)
++    }
++
++    processState(s: Buffer) {
++        if (s.length !== 39) return
++        if (!this.reportedState?.equals(s)) this.reportedVersion++
++        this.reportedState = Buffer.from(s)
++        this.reportedAt = this.now()
++        this.publishProperty('last_status_at',new Date(this.reportedAt).toISOString())
++        this.publishProperty('status',STATES[s[2]] ?? `State code ${s[2]}`)
++        this.publishProperty('power',s[2]===0?'OFF':'ON')
++        this.publishProperty('course',COURSES[s[7]] ?? `Programme code 0x${s[7].toString(16)}`)
++        this.publishProperty('spin',SPINS.map(s[10]) ?? `Spin code ${s[10]}`)
++        this.publishProperty('temp',TEMPERATURES.map(s[11]) ?? `Temperature code ${s[11]}`)
++        this.publishProperty('drying_mode',DRYING[s[13]] ?? `Drying code 0x${s[13].toString(16)}`)
++        this.publishProperty('initial_time',s[5]*60+s[6])
++        this.publishProperty('remaining_time',s[3]*60+s[4])
++        this.publishProperty('error_code',s[8])
++    }
++
++    /** Pure preview: generating or reading it never sends anything to the appliance. */
++    previewStart(): StartPreview {
++        const s = this.reportedState
++        const unavailable = (reason: string): StartPreview => ({enabled:false,reason})
++        if (!s) return unavailable('Select a programme on the washer to load its settings.')
++        if (this.now() - this.reportedAt > 120_000) return unavailable('Refresh the programme settings on the washer.')
++        if (this.startRequestedVersion === this.reportedVersion) return unavailable('Start was already requested. Check the washer or refresh its settings.')
++        if (s[2] !== 1) return unavailable('The washer must be on and in standby.')
++        if (s[8] !== 0) return unavailable('Clear the error shown on the washer first.')
++        if (s[7] === 0 || s[10] === 0 || s[11] === 0 || s[12] === 0) return unavailable('Select a complete programme on the washer.')
++        if (s[22] !== 0) return unavailable('Start for downloaded programmes is not implemented yet.')
++
++        // B32 WMStart layout from upstream Y_V8_Y___W.B32QEUK.programmeCommand.
++        // Keep the drying level from this combo's report instead of its wash-only sibling's 0.
++        // Unlike F02405 (default programme), F026 carries the selected programme and all settings.
++        const command = Buffer.from([
++            0xf0,0x26,s[7],s[9],s[10],s[11],s[12],s[13],s[14],s[15],0,s[16],
++            0x03,0,0,0,0,0, // initialBit|remoteStart, reserved, smart course and absent ezDispense
++        ])
++        const revision = createHash('sha256').update(this.session).update(command).digest('hex')
++        return {enabled:true,reason:null,revision,command:command.toString('hex')}
++    }
++
++    /** Only the explicit Start action calls this; no constructor, timer or receive path does. */
++    startSelectedProgramme(expectedRevision: string) {
++        const plan = this.previewStart()
++        if (!plan.enabled || !plan.command) throw new Error(plan.reason ?? 'Start is unavailable.')
++        if (plan.revision !== expectedRevision) throw new Error('Programme settings changed. Review them before starting.')
++        this.startRequestedVersion = this.reportedVersion
++        try {
++            this.send(Buffer.from(plan.command,'hex'))
++        } catch (error) {
++            this.startRequestedVersion = undefined
++            throw error
++        }
++    }
++
++    setProperty(_prop: string, _value: string) {
++        // No MQTT command subscription: old/retained messages must not trigger a start.
++        // The local page uses startSelectedProgramme with a reviewed-settings revision.
++    }
++}
+diff --git a/cloud/ha_bridge.ts b/cloud/ha_bridge.ts
+index 8a2a149..9f81a47 100644
+--- a/cloud/ha_bridge.ts
++++ b/cloud/ha_bridge.ts
+@@ -25,6 +25,7 @@ import Y_V8_Y___W_B32QEUK from './devices/Y_V8_Y___W.B32QEUK'
+ import Y_VB_Y___W_B32QEUK from './devices/Y_VB_Y___W.B32QEUK'
+ import F_V8_Y___W_B_2QEUK from './devices/F_V8_Y___W.B_2QEUK'
+ import Y_V8_F___W_B_2QEUK from './devices/Y_V8_F___W.B_2QEUK'
++import Y_V8_F___W_B32QEUK from './devices/Y_V8_F___W.B32QEUK'
+ import F_V__F___W_B_1QEUK from './devices/F_V__F___W.B_1QEUK'
+ import F_C__Y___W_A__QEUK from './devices/F_C__Y___W.A__QEUK'
+ import F_VB_F___W_B_2QEUK from './devices/F_VB_F___W.B_2QEUK'
+@@ -90,6 +91,7 @@ const t2deviceTypes: Record<string, T2Factory> = {
+     'Y_V8_Y___W.B32QEUK': Y_V8_Y___W_B32QEUK,
+     'F_V8_Y___W.B_2QEUK': F_V8_Y___W_B_2QEUK,
+     'Y_V8_F___W.B_2QEUK': Y_V8_F___W_B_2QEUK,
++    'Y_V8_F___W.B32QEUK': Y_V8_F___W_B32QEUK,
+     VCDWL2QEUK, // LG F4X7511TWS front-load washer (matched on modelId VCDWL2QEUK)
+     'G2V7_Y___W.B_2QEUK': G2V7_Y___W_B_2QEUK, // LG F2NX50S9TKC slim front-load washer, VCDWL2QEUK's record in the 0x20 envelope
+     'F_V__F___W.B_1QEUK': F_V__F___W_B_1QEUK,
+diff --git a/tests/cloud/devices/Y_V8_F___W.B32QEUK.test.ts b/tests/cloud/devices/Y_V8_F___W.B32QEUK.test.ts
+new file mode 100644
+index 0000000..b8f773b
+--- /dev/null
++++ b/tests/cloud/devices/Y_V8_F___W.B32QEUK.test.ts
+@@ -0,0 +1,107 @@
++import { test } from 'node:test'
++import assert from 'node:assert/strict'
++import Device from '@/cloud/devices/Y_V8_F___W.B32QEUK'
++import { MockHAConnection, MockThinq2Device } from '@/tests/helpers/mocks'
++
++import { makeWasherFrame, makeConfigFrame } from '@/tests/helpers/fwy916wbtn1-fixtures'
++
++const META={modelId:'Y_V8_F___W.B32QEUK',modelName:'FWY916WBTN1',swVersion:'2.11.207'}
++// Generated fixtures model the panel-verified layout without redistributing captures.
++const FRAME=makeConfigFrame()
++const COTTON_40_1400=makeWasherFrame()
++const COTTON_DRY_ON=makeWasherFrame({drying:2,duration:362})
++const COTTON_30_1000=makeWasherFrame({drying:2,spin:7,temp:3,duration:338})
++
++test('captured FWY916WBTN1 envelope is acknowledged without an appliance command',()=>{
++    const ha=new MockHAConnection()
++    const thinq=new MockThinq2Device('test-washer',META)
++    new Device(ha.asConnection(),thinq,META)
++    thinq.emit('data',FRAME)
++    assert.deepEqual(thinq.sent,[{cmd:'ack',type:1,data:'AA0AF0000A040102E0BB'}])
++    assert.equal(ha.devices['test-washer'].properties.received_packets,1)
++    assert.equal(ha.devices['test-washer'].properties.raw_packet,FRAME.subarray(2,-2).toString('hex'))
++    assert.equal(ha.devices['test-washer'].properties.status,undefined)
++})
++
++test('MQTT messages cannot start, pause, stop or power the washer',()=>{
++    const ha=new MockHAConnection()
++    const thinq=new MockThinq2Device('test-washer',META)
++    const device=new Device(ha.asConnection(),thinq,META)
++    for(const key of ['start','pause','stop','power'])device.setProperty(key,'ON')
++    assert.deepEqual(thinq.sent,[])
++    const components=ha.devices['test-washer'].config!.components
++    for(const component of Object.values(components))assert.equal('command_topic' in component,false)
++})
++
++test('previews and incoming status never transmit a start; explicit action preserves settings',()=>{
++    const ha=new MockHAConnection()
++    const thinq=new MockThinq2Device('test-washer',META)
++    const device=new Device(ha.asConnection(),thinq,META)
++    assert.equal(device.previewStart().enabled,false)
++    assert.equal(thinq.outbox.length,0)
++    for(const [frame,expected] of [
++        [COTTON_40_1400,'f02601030a04010000000000030000000000'],
++        [COTTON_DRY_ON,'f02601030a04010200000000030000000000'],
++        [COTTON_30_1000,'f02601030703010200000000030000000000'],
++    ] as const){
++        thinq.emit('data',frame)
++        const plan=device.previewStart()
++        assert.equal(plan.enabled,true)
++        assert.equal(plan.command,expected)
++        assert.equal(device.previewStart().revision,plan.revision)
++        assert.equal(thinq.outbox.length,0,'receive and preview are read-only')
++    }
++    const plan=device.previewStart()
++    device.startSelectedProgramme(plan.revision!)
++    assert.equal(thinq.outbox.length,1)
++    assert.equal(thinq.outbox[0].subarray(2,-2).toString('hex'),'f02601030703010200000000030000000000')
++    assert.throws(()=>device.startSelectedProgramme(plan.revision!),/already requested/)
++    thinq.emit('data',COTTON_30_1000)
++    assert.throws(()=>device.startSelectedProgramme(plan.revision!),/already requested/,'a repeated status does not permit a duplicate')
++    assert.equal(thinq.outbox.length,1)
++})
++
++test('stale, changed, incomplete, non-standby and errored selections cannot start',()=>{
++    let time=1_000_000
++    const ha=new MockHAConnection()
++    const thinq=new MockThinq2Device('test-washer',META)
++    const device=new Device(ha.asConnection(),thinq,META,()=>time)
++    assert.throws(()=>device.startSelectedProgramme('anything'),/Select a programme/)
++    thinq.emit('data',COTTON_40_1400)
++    const old=device.previewStart()
++    thinq.emit('data',COTTON_DRY_ON)
++    assert.throws(()=>device.startSelectedProgramme(old.revision!),/settings changed/)
++    const fresh=device.previewStart()
++    time+=120_001
++    assert.throws(()=>device.startSelectedProgramme(fresh.revision!),/Refresh/)
++    const record=COTTON_DRY_ON.subarray(54,93)
++    for(const [index,value,reason] of [[2,6,/standby/],[8,3,/error/],[7,0,/complete/],[22,1,/downloaded/]] as const){
++        const s=Buffer.from(record);s[index]=value;device.processState(s)
++        assert.throws(()=>device.startSelectedProgramme('anything'),reason)
++    }
++    assert.equal(thinq.outbox.length,0)
++})
++
++test('real panel changes decode the current state of paired status records',()=>{
++    const ha=new MockHAConnection()
++    const thinq=new MockThinq2Device('test-washer',META)
++    new Device(ha.asConnection(),thinq,META)
++    const props=()=>ha.devices['test-washer'].properties
++    thinq.emit('data',COTTON_40_1400)
++    assert.equal(props().status,'Standby')
++    assert.equal(props().course,'Cotton')
++    assert.equal(props().temp,'40 °C')
++    assert.equal(props().spin,'1400 rpm')
++    assert.equal(props().drying_mode,'Off')
++    assert.equal(props().remaining_time,238)
++    thinq.emit('data',COTTON_DRY_ON)
++    assert.equal(props().drying_mode,'On (automatic)')
++    assert.equal(props().remaining_time,362)
++    thinq.emit('data',COTTON_30_1000)
++    assert.equal(props().temp,'30 °C')
++    assert.equal(props().spin,'1000 rpm')
++    assert.equal(props().drying_mode,'On (automatic)')
++    assert.equal(props().initial_time,338)
++    assert.equal(props().remaining_time,338)
++    assert.equal(thinq.sent.every(message=>message.cmd==='ack'),true)
++})
+diff --git a/tests/helpers/fwy916wbtn1-fixtures.ts b/tests/helpers/fwy916wbtn1-fixtures.ts
+new file mode 100644
+index 0000000..945c2b8
+--- /dev/null
++++ b/tests/helpers/fwy916wbtn1-fixtures.ts
+@@ -0,0 +1,14 @@
++// Synthetic fixtures: known settings, zeroed unrelated fields, no real appliance capture.
++import AABBDevice from '@/cloud/devices/aabb_device'
++export function makeWasherFrame(options: {drying?:number;spin?:number;temp?:number;duration?:number}={}) {
++    const state=Buffer.alloc(39)
++    state[2]=1;state[7]=1;state[9]=3;state[10]=options.spin??10;state[11]=options.temp??4
++    state[12]=1;state[13]=options.drying??0
++    const minutes=options.duration??238
++    state[3]=state[5]=Math.floor(minutes/60);state[4]=state[6]=minutes%60
++    const header=Buffer.from('200a005b000102000100ec004e','hex')
++    return AABBDevice.frame(Buffer.concat([header,Buffer.alloc(39),state]))
++}
++export function makeConfigFrame() {
++    return AABBDevice.frame(Buffer.from('200a0015000102000101030003000000','hex'))
++}

@@ -1,0 +1,6 @@
+{
+  "repository": "https://github.com/anszom/rethink.git",
+  "revision": "0de21e2e1962ef631a67780e7de85bc899857043",
+  "image": "ghcr.io/anszom/rethink@sha256:362fedcac5043252300d8827b6be66d5eb9c24133e4b07f459ceea93a247cec3",
+  "patches": ["model.patch", "dashboard.patch"]
+}

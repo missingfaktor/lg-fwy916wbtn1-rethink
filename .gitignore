@@ -1,0 +1,17 @@
+.local/
+runtime/
+data/
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.env
+.env.*
+*.key
+*.pem
+ap-secret.json
+hostapd.conf
+washer-info.json
+washer-traffic.jsonl
+*.pcap
+*.pcapng

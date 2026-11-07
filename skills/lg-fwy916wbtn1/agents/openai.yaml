@@ -1,0 +1,4 @@
+interface:
+  display_name: "LG FWY916WBTN1"
+  short_description: "Connect and monitor an LG washer through Rethink"
+  default_prompt: "Use $lg-fwy916wbtn1 to set up local Rethink support for my LG FWY916WBTN1 without starting a cycle."

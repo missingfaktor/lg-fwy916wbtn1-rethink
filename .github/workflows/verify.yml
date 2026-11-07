@@ -1,0 +1,15 @@
+name: Offline verification
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m unittest discover -s tests
+      - run: python skills/lg-fwy916wbtn1/scripts/manage.py prepare --workspace "$RUNNER_TEMP/fwy916wbtn1"
+      - run: python skills/lg-fwy916wbtn1/scripts/manage.py verify --workspace "$RUNNER_TEMP/fwy916wbtn1"

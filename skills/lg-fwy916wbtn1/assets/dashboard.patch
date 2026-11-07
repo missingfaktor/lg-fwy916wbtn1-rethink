@@ -1,0 +1,141 @@
+diff --git a/html/washer.html b/html/washer.html
+new file mode 100644
+index 0000000..01f45c5
+--- /dev/null
++++ b/html/washer.html
+@@ -0,0 +1,25 @@
++<!doctype html>
++<html lang="en">
++<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
++<title>Laundry · Local status</title>
++<style>
++:root{font:17px/1.5 system-ui,sans-serif;color:#19312e;background:#eef3ef}*{box-sizing:border-box}body{max-width:850px;margin:0 auto;padding:48px 24px}header{display:flex;align-items:center;justify-content:space-between;gap:20px}h1{font-size:42px;letter-spacing:-2px;margin:8px 0}small,.muted{color:#62736e}.badge{border-radius:20px;padding:7px 14px;background:#d4e8dc;font-size:14px}main{background:white;border-radius:24px;margin-top:26px;padding:28px;box-shadow:0 8px 30px #173d2710}.summary{font-size:29px;margin:0 0 24px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px}label{font-size:14px;color:#62736e;display:block}.value{font-size:23px;font-weight:600;margin-top:4px}footer{font-size:14px;margin-top:24px}a{color:#225b44}#fresh{margin-top:24px;font-size:14px;color:#62736e}@media(max-width:500px){body{padding:24px 18px}.grid{grid-template-columns:1fr}h1{font-size:34px}}
++button:disabled{opacity:.45;cursor:not-allowed}
++</style>
++<header><div><small>LG FWY916WBTN1</small><h1>Laundry</h1></div><span class="badge" id="connection">Connecting…</span></header>
++<div class="muted">Connected through Rethink on this laptop.</div>
++<main><p class="summary" id="status">Waiting for a status report</p><div class="grid" id="fields"></div><div id="fresh"></div>
++<div style="margin-top:26px;border-top:1px solid #e0e8e2;padding-top:22px"><button id="start" disabled style="font:inherit;border:0;border-radius:12px;background:#225b44;color:white;padding:13px 20px;cursor:pointer">Start selected programme</button><p class="muted" style="font-size:14px">Load the washer, add detergent, and arm Remote Start by holding Add Item for 3 seconds first.</p><div id="start-message" role="status" aria-live="polite"></div></div></main>
++<footer>Before a cycle starts, the duration is an estimate and may not appear on the panel. Start is implemented but has not been tested on a live cycle. Keep this laptop awake while the washer uses its local Wi-Fi. <a href="/">Rethink management</a></footer>
++<script>
++let id=new URLSearchParams(location.search).get('id');
++const rows=[['course','Programme'],['temp','Temperature'],['spin','Spin speed'],['drying_mode','Drying'],['remaining_time','Machine-reported duration']];
++const fields=document.getElementById('fields');
++const startButton=document.getElementById('start');let startPlan;let submitting=false;
++for(const [key,label] of rows){const box=document.createElement('div');const caption=document.createElement('label');caption.textContent=label;const value=document.createElement('div');value.className='value';value.id='field-'+key;value.textContent='—';box.append(caption,value);fields.append(box)}
++const time=value=>{const n=Number(value);return Number.isFinite(n)?`${Math.floor(n/60)} h ${String(n%60).padStart(2,'0')} min`:'—'};
++async function refresh(){try{if(!id){const devices=await(await fetch('/washers',{cache:'no-store'})).json();if(devices.length!==1){document.getElementById('status').textContent=devices.length?'Select a washer using its device ID in the page URL.':'Waiting for the washer to connect';return}id=devices[0].id}const response=await fetch('/status/'+encodeURIComponent(id),{cache:'no-store'});const data=await response.json();startPlan=data.start;startButton.disabled=submitting||!data.online||!startPlan?.enabled;startButton.title=startPlan?.reason||'';document.getElementById('connection').textContent=data.online?'Connected locally':'Offline';if(!data.online){document.getElementById('status').textContent='Washer offline';return}const p=data.properties||{};document.getElementById('status').textContent=p.status||'Waiting for a status report';for(const[key]of rows)document.getElementById('field-'+key).textContent=p[key]===undefined?'—':key.endsWith('_time')?time(p[key]):p[key];document.getElementById('fresh').textContent=(p.last_status_at?'Last status report: '+new Date(p.last_status_at).toLocaleTimeString('en-GB'):'Waiting for fresh programme settings.')+(startPlan?.reason?' · '+startPlan.reason:'')}catch{startButton.disabled=true;startPlan=undefined;document.getElementById('connection').textContent='Connection lost'}}
++startButton.addEventListener('click',async()=>{if(submitting||!startPlan?.enabled)return;const revision=startPlan.revision;submitting=true;startButton.disabled=true;try{const response=await fetch('/start/'+encodeURIComponent(id),{method:'POST',headers:{'Content-Type':'application/json','X-Rethink-Action':'start'},body:JSON.stringify({revision})});const result=await response.json();document.getElementById('start-message').textContent=result.error||result.message}catch{document.getElementById('start-message').textContent='No response received. Check the washer before trying again.'}finally{submitting=false;await refresh()}});
++refresh();setInterval(refresh,2000);
++</script>
++</html>
+diff --git a/management/index.ts b/management/index.ts
+index 3db5de4..df18c90 100644
+--- a/management/index.ts
++++ b/management/index.ts
+@@ -11,6 +11,7 @@ import { Bridge } from '@/bridge'
+ import { Request, Response } from 'express'
+ import { Device as T1Device } from '@/cloud/thinq1/device'
+ import { Device as T2Device } from '@/cloud/thinq2/device'
++import LocalWasher from '@/cloud/devices/Y_V8_F___W.B32QEUK'
+ 
+ // refresh bridged device names policy:
+ // - only if a websocket subscriber is connected
+@@ -358,6 +359,48 @@ export function app(ha: HA_bridge, manager: DeviceManager, bridge: Bridge | unde
+         }, next)
+     })
+ 
++    // Local trial's read-only view of properties already reported by the appliance.
++    app.get('/washers',(_req,res)=>{
++        res.setHeader('Cache-Control','no-store')
++        res.json(Object.values(manager.allDevices)
++            .filter(dev=>dev.meta.modelId==='Y_V8_F___W.B32QEUK')
++            .map(dev=>({id:dev.id,model:dev.meta.modelId})))
++    })
++    app.get('/status/:deviceId', (req,res)=>{
++        const id=req.params.deviceId
++        const dev=manager.allDevices[id]
++        const mapped=ha.haDevices.get(id)
++        res.setHeader('Cache-Control','no-store')
++        if (!dev) {res.status(404).json({online:false});return}
++        res.json({online:true,model:dev.meta.modelId,properties:Object.fromEntries(mapped?.publishCache ?? []),
++            start:mapped instanceof LocalWasher ? mapped.previewStart() : undefined})
++    })
++
++    app.post('/start/:deviceId',(req,res)=>{
++        // An ordinary page load/poll can never start the washer. The custom header also
++        // prevents another website from submitting a simple cross-origin form to localhost.
++        const origin=req.get('origin')
++        if (req.get('X-Rethink-Action') !== 'start' || !req.is('application/json') ||
++            (origin && origin !== `${req.protocol}://${req.get('host')}`)) {
++            res.status(403).json({error:'Start must be requested from the local washer page.'});return
++        }
++        const id=req.params.deviceId
++        const mapped=ha.haDevices.get(id)
++        if (!manager.allDevices[id] || !(mapped instanceof LocalWasher)) {
++            res.status(409).json({error:'The washer is offline.'});return
++        }
++        if (typeof req.body?.revision !== 'string') {
++            res.status(400).json({error:'Review the current programme settings before starting.'});return
++        }
++        try {
++            mapped.startSelectedProgramme(req.body.revision)
++            // Transmission is not confirmation that the appliance has begun a cycle.
++            res.status(202).json({message:'Start command sent. Waiting for the washer to report its new state.'})
++        } catch (error) {
++            res.status(409).json({error:error instanceof Error ? error.message : 'Start could not be requested.'})
++        }
++    })
++
+     // static pages
+     app.use(WebSocketExpress.static(currentDir + '/../html', { extensions: ['html'] }))
+     const server = app.createServer()
+diff --git a/tests/management/washer-start.test.ts b/tests/management/washer-start.test.ts
+new file mode 100644
+index 0000000..354ca49
+--- /dev/null
++++ b/tests/management/washer-start.test.ts
+@@ -0,0 +1,43 @@
++import assert from 'node:assert/strict'
++import { EventEmitter, once } from 'node:events'
++import type { AddressInfo } from 'node:net'
++import { test } from 'node:test'
++import type HA_bridge from '@/cloud/ha_bridge'
++import { DeviceManager } from '@/cloud/devmgr'
++import { app } from '@/management'
++import Washer from '@/cloud/devices/Y_V8_F___W.B32QEUK'
++import { MockHAConnection,MockThinq2Device } from '../helpers/mocks'
++
++import { makeWasherFrame } from '@/tests/helpers/fwy916wbtn1-fixtures'
++
++const FRAME=makeWasherFrame({drying:2,duration:362})
++
++test('HTTP page loads and polling cannot start; explicit same-origin POST sends only to the fake transport',async()=>{
++    const haStatus=Object.assign(new EventEmitter(),{isConnected:true})
++    const fake=new MockThinq2Device('fake-washer',{modelId:'Y_V8_F___W.B32QEUK',modelName:'FWY916WBTN1'})
++    const washer=new Washer(new MockHAConnection().asConnection(),fake,fake.meta)
++    const ha={HA:haStatus,haDevices:new Map([['fake-washer',washer]])} as unknown as HA_bridge
++    const manager=new DeviceManager();manager.accept(fake)
++    fake.emit('data',FRAME)
++    const server=app(ha,manager,undefined);server.listen(0,'127.0.0.1');await once(server,'listening')
++    const base=`http://127.0.0.1:${(server.address() as AddressInfo).port}`
++    try{
++        assert.equal((await fetch(base+'/washer')).status,200)
++        const status=await (await fetch(base+'/status/fake-washer')).json() as any
++        assert.equal(status.start.enabled,true)
++        assert.equal(status.properties.drying_mode,'On (automatic)')
++        assert.equal((await fetch(base+'/start/fake-washer')).status,404)
++        assert.equal(fake.outbox.length,0)
++        const options={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:status.start.revision})}
++        assert.equal((await fetch(base+'/start/fake-washer',options)).status,403)
++        assert.equal((await fetch(base+'/start/fake-washer',{...options,headers:{...options.headers,'X-Rethink-Action':'start',Origin:'https://unrelated.example'}})).status,403)
++        assert.equal((await fetch(base+'/start/fake-washer',{...options,headers:{...options.headers,'X-Rethink-Action':'start',Origin:base},body:JSON.stringify({revision:'old'})})).status,409)
++        assert.equal(fake.outbox.length,0)
++        const response=await fetch(base+'/start/fake-washer',{...options,headers:{...options.headers,'X-Rethink-Action':'start',Origin:base}})
++        assert.equal(response.status,202)
++        assert.equal(fake.outbox.length,1)
++        assert.equal(fake.outbox[0].subarray(2,-2).toString('hex'),'f02601030a04010200000000030000000000')
++        assert.equal((await fetch(base+'/start/fake-washer',{...options,headers:{...options.headers,'X-Rethink-Action':'start',Origin:base}})).status,409)
++        assert.equal(fake.outbox.length,1)
++    }finally{await new Promise<void>((resolve,reject)=>server.close(e=>e?reject(e):resolve()))}
++})
