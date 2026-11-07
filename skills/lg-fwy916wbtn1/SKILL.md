@@ -18,13 +18,44 @@ The helper's `prepare`, `verify`, `configure`, `up`, `status` and `down` command
 never invoke the Start endpoint. The status page and its GET requests are passive.
 Only an explicit request to start the appliance authorises an actual Start action.
 
-For an authorised start, use the existing UI or `POST /start/<deviceId>` with
-the revision returned by `GET /status/<deviceId>` and header
-`X-Rethink-Action: start`. Use the user's selected programme, including its drying
-setting. The washer's physical Remote Start interlock remains in force; the user
-arms it by holding Add Item for three seconds. Do not substitute raw packet
+For an authorised start, prefer `scripts/control.mjs`: it selects the requested
+programme and settings on the laptop, then sends the reviewed Start request.
+There is no need to select the programme on the washer's dial. Load, power and
+physical Remote Start arming remain necessary; the user arms it by holding Add
+Item for three seconds. Do not substitute raw packet
 injection, the default-programme command `F02405`, or an automatic retry.
 Report a command as sent until a new appliance status confirms what happened.
+
+## Control from chat or a future voice client
+
+Use the same local API as the browser. Resolve the user's requested cycle and
+options; use an established household default only when their intent supports it.
+Do not silently substitute an unsupported programme or omit drying.
+
+```sh
+node scripts/control.mjs catalogue
+node scripts/control.mjs status
+node scripts/control.mjs plan --programme wash-dry --temperature 40 --spin 1400 --drying cupboard
+```
+
+`plan` stores settings for the next cycle on the server and never sends an
+appliance command. For an explicit user request to **start** that cycle, use:
+
+```sh
+node scripts/control.mjs start --programme wash-dry --temperature 40 --spin 1400 --drying cupboard
+```
+
+Do not run this last command for requests to implement, demonstrate, prepare or
+test offline. `start` refuses an offline, unarmed, errored or non-standby washer.
+It does not wake the machine, arm it remotely or retry. No extra approval question
+is needed when the user has already explicitly requested this exact start.
+The API is ready for another local client; a voice platform is not bundled.
+
+Direct API clients use `GET /programmes`, `POST /programme/<deviceId>` with
+`X-Rethink-Action: programme`, and then `POST /start/<deviceId>` with
+`X-Rethink-Action: start` and the latest returned revision. The programme JSON is
+`{programme, temperatureC, spinRpm, drying}`; missing options use that programme's
+defaults. Selection and Start are separate actions.
 
 ## Set up or update
 

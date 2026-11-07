@@ -16,7 +16,8 @@ Offsets within one record:
 
 - `2`: state (0 off, 1 standby, verified by physical off/on).
 - `3..4`: reported remaining duration, hours/minutes; `5..6`: initial duration.
-- `7`: programme; Cotton is 1. Unknown programmes stay visibly numeric.
+- `7`: programme; Cotton is 1, Eco 40-60 is 4. The catalogue uses the related
+  B32 family's programme IDs; most have not been tested in a live cycle here.
 - `8`: error code; `9`: soil setting.
 - `10`: spin code; 10 is 1400 rpm, 7 is 1000 rpm.
 - `11`: temperature code; 4 is 40 °C, 3 is 30 °C.
@@ -30,8 +31,11 @@ a universal RPM menu from another washer's model JSON.
 
 Pre-start durations are the appliance's reported values. They are not a promise
 of actual completion time and may not yet appear on its load-sensing display.
-Remote-start and door bits have not been verified for this exact model; the
-package does not infer that the door is locked or that Remote Start is armed.
+Remote Start was verified by an idle panel action: holding Add Item changed
+record byte 17 from `00` to `02`, then `42`. Bit `02` is the armed indicator.
+The programme field remained zero: arming does not require choosing a programme
+on the dial. The package uses the armed indicator and does not infer door-lock
+state from an unverified bit.
 
 Normal delivery acknowledgements are sent under MQTT `cmd: ack`, including an
 envelope sequence number. They are not Start commands. Without them this modem
@@ -49,7 +53,12 @@ It sends one AABB-framed `F0 26` followed by a 16-byte programme body:
 course soil spin temp rinse dry reserveH reserveM load options flags reserved smart detergent softener dispense
 ```
 
-Current implementation preserves the corresponding reported settings, uses
+Without a laptop selection, the implementation preserves reported settings.
+With a laptop selection, it builds the body from the named programme and its
+chosen temperature, spin and drying, with no delayed end and standard rinse/soil
+defaults. Programme limits/defaults follow the FWY916WBTN1 manual; wire IDs and
+non-default drying codes follow the B32 family and need live validation.
+The implementation uses
 zero for load/reserved/dispensers, and sets the B32 `initialBit | remoteStart`
 flags to `03`. Downloaded programmes are refused. **This wire command has only
 been tested offline for this exact model**, against generated status fixtures
@@ -60,11 +69,19 @@ on related models and can discard the user's selected configuration.
 Do not assume the extra WMDownload step documented for `.B_2QEUK` is required
 for `.B32QEUK`; that variant is not the verified B32 command source.
 
-Before sending, the local handler requires a complete, error-free standby
-selection less than two minutes old. The preview is read-only and includes a
-revision bound to the device instance and programme bytes. The POST must use
-that revision. A duplicate request is blocked until the reported state changes;
-page refreshes, MQTT messages and background timers cannot initiate Start.
+Before sending, the local handler requires the current connection's report to
+show error-free standby with physical Remote Start armed. A complete laptop
+selection replaces the need for a panel programme. The preview is read-only;
+its revision binds the device instance, reported-state version and programme
+bytes. Any relevant state/selection change invalidates an earlier preview.
+A duplicate request is blocked until the reported state changes. A lost
+connection discards readiness. Page refreshes, plan changes, MQTT messages and
+background timers cannot initiate Start.
+
+There is no arbitrary two-minute expiry forcing someone back to the dial while
+the same connection continues to report an armed standby state. The appliance
+still enforces its own physical interlock. A controller reboot or server
+reconnection may require arming again to produce a new ready-state report.
 
 The physical Remote Start interlock is not bypassed. The user arms it on the
 panel. No automatic wake, fallback programme, retry, pause or power operation

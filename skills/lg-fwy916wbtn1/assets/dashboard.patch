@@ -1,51 +1,77 @@
 diff --git a/html/washer.html b/html/washer.html
 new file mode 100644
-index 0000000..01f45c5
+index 0000000..f5866f7
 --- /dev/null
 +++ b/html/washer.html
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,50 @@
 +<!doctype html>
 +<html lang="en">
 +<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-+<title>Laundry · Local status</title>
++<title>Laundry · Local control</title>
 +<style>
-+:root{font:17px/1.5 system-ui,sans-serif;color:#19312e;background:#eef3ef}*{box-sizing:border-box}body{max-width:850px;margin:0 auto;padding:48px 24px}header{display:flex;align-items:center;justify-content:space-between;gap:20px}h1{font-size:42px;letter-spacing:-2px;margin:8px 0}small,.muted{color:#62736e}.badge{border-radius:20px;padding:7px 14px;background:#d4e8dc;font-size:14px}main{background:white;border-radius:24px;margin-top:26px;padding:28px;box-shadow:0 8px 30px #173d2710}.summary{font-size:29px;margin:0 0 24px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px}label{font-size:14px;color:#62736e;display:block}.value{font-size:23px;font-weight:600;margin-top:4px}footer{font-size:14px;margin-top:24px}a{color:#225b44}#fresh{margin-top:24px;font-size:14px;color:#62736e}@media(max-width:500px){body{padding:24px 18px}.grid{grid-template-columns:1fr}h1{font-size:34px}}
-+button:disabled{opacity:.45;cursor:not-allowed}
++:root{font:17px/1.5 system-ui,sans-serif;color:#19312e;background:#eef3ef}*{box-sizing:border-box}body{max-width:900px;margin:0 auto;padding:42px 24px}header{display:flex;align-items:center;justify-content:space-between;gap:20px}h1{font-size:42px;letter-spacing:-2px;margin:6px 0}h2{font-size:23px;margin:0 0 18px}small,.muted{color:#62736e}.badge{border-radius:20px;padding:7px 14px;background:#d4e8dc;font-size:14px}section{background:white;border-radius:24px;margin-top:24px;padding:28px;box-shadow:0 8px 30px #173d2710}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}label{font-size:14px;color:#62736e;display:block}select{width:100%;margin-top:6px;padding:12px;border:1px solid #b8c9bf;border-radius:10px;background:white;font:inherit;color:#19312e}.value{font-size:21px;font-weight:600;margin-top:3px}.summary{font-size:26px;margin:0 0 18px}button{font:inherit;border:0;border-radius:12px;background:#225b44;color:white;padding:14px 20px;cursor:pointer;margin-top:18px}button:disabled{opacity:.45;cursor:not-allowed}footer,#fresh,#plan-message,#start-message{font-size:14px;margin-top:18px}a{color:#225b44}.note{font-size:14px;color:#62736e;margin-bottom:0}@media(max-width:500px){body{padding:24px 16px}.grid{grid-template-columns:1fr}h1{font-size:34px}section{padding:22px}}
 +</style>
 +<header><div><small>LG FWY916WBTN1</small><h1>Laundry</h1></div><span class="badge" id="connection">Connecting…</span></header>
-+<div class="muted">Connected through Rethink on this laptop.</div>
-+<main><p class="summary" id="status">Waiting for a status report</p><div class="grid" id="fields"></div><div id="fresh"></div>
-+<div style="margin-top:26px;border-top:1px solid #e0e8e2;padding-top:22px"><button id="start" disabled style="font:inherit;border:0;border-radius:12px;background:#225b44;color:white;padding:13px 20px;cursor:pointer">Start selected programme</button><p class="muted" style="font-size:14px">Load the washer, add detergent, and arm Remote Start by holding Add Item for 3 seconds first.</p><div id="start-message" role="status" aria-live="polite"></div></div></main>
-+<footer>Before a cycle starts, the duration is an estimate and may not appear on the panel. Start is implemented but has not been tested on a live cycle. Keep this laptop awake while the washer uses its local Wi-Fi. <a href="/">Rethink management</a></footer>
++<div class="muted">Choose the next cycle here. Settings are sent to the washer when you press Start.</div>
++<section aria-labelledby="next-title"><h2 id="next-title">Next wash</h2><div class="grid">
++<label for="programme">Programme<select id="programme"><option value="">Select a programme</option></select></label>
++<label for="temperature">Temperature<select id="temperature" disabled></select></label>
++<label for="spin">Spin speed<select id="spin" disabled></select></label>
++<label for="drying">Drying<select id="drying" disabled></select></label>
++</div><div id="plan-message" role="status" aria-live="polite">Choose a programme to prepare its settings.</div>
++<button id="start" disabled>Start selected programme</button><div id="start-message" role="status" aria-live="polite"></div>
++<p class="note">Load the washer, add detergent and arm Remote Start on the machine by holding Add Item for 3 seconds.</p></section>
++<section aria-labelledby="reported-title"><h2 id="reported-title">Reported by the washer</h2><p class="summary" id="status">Waiting for the washer</p><div class="grid" id="fields"></div><div id="fresh"></div></section>
++<footer>Cycle execution is implemented but has not been tested on a live cycle. Durations are machine estimates. Keep this laptop awake while the washer uses its local Wi-Fi. <a href="/">Rethink management</a></footer>
 +<script>
-+let id=new URLSearchParams(location.search).get('id');
++let id=new URLSearchParams(location.search).get('id');let catalogue;let startPlan;let saving=false;let submitting=false;
++const el=id=>document.getElementById(id);const controls=['programme','temperature','spin','drying'].map(el);
 +const rows=[['course','Programme'],['temp','Temperature'],['spin','Spin speed'],['drying_mode','Drying'],['remaining_time','Machine-reported duration']];
-+const fields=document.getElementById('fields');
-+const startButton=document.getElementById('start');let startPlan;let submitting=false;
-+for(const [key,label] of rows){const box=document.createElement('div');const caption=document.createElement('label');caption.textContent=label;const value=document.createElement('div');value.className='value';value.id='field-'+key;value.textContent='—';box.append(caption,value);fields.append(box)}
-+const time=value=>{const n=Number(value);return Number.isFinite(n)?`${Math.floor(n/60)} h ${String(n%60).padStart(2,'0')} min`:'—'};
-+async function refresh(){try{if(!id){const devices=await(await fetch('/washers',{cache:'no-store'})).json();if(devices.length!==1){document.getElementById('status').textContent=devices.length?'Select a washer using its device ID in the page URL.':'Waiting for the washer to connect';return}id=devices[0].id}const response=await fetch('/status/'+encodeURIComponent(id),{cache:'no-store'});const data=await response.json();startPlan=data.start;startButton.disabled=submitting||!data.online||!startPlan?.enabled;startButton.title=startPlan?.reason||'';document.getElementById('connection').textContent=data.online?'Connected locally':'Offline';if(!data.online){document.getElementById('status').textContent='Washer offline';return}const p=data.properties||{};document.getElementById('status').textContent=p.status||'Waiting for a status report';for(const[key]of rows)document.getElementById('field-'+key).textContent=p[key]===undefined?'—':key.endsWith('_time')?time(p[key]):p[key];document.getElementById('fresh').textContent=(p.last_status_at?'Last status report: '+new Date(p.last_status_at).toLocaleTimeString('en-GB'):'Waiting for fresh programme settings.')+(startPlan?.reason?' · '+startPlan.reason:'')}catch{startButton.disabled=true;startPlan=undefined;document.getElementById('connection').textContent='Connection lost'}}
-+startButton.addEventListener('click',async()=>{if(submitting||!startPlan?.enabled)return;const revision=startPlan.revision;submitting=true;startButton.disabled=true;try{const response=await fetch('/start/'+encodeURIComponent(id),{method:'POST',headers:{'Content-Type':'application/json','X-Rethink-Action':'start'},body:JSON.stringify({revision})});const result=await response.json();document.getElementById('start-message').textContent=result.error||result.message}catch{document.getElementById('start-message').textContent='No response received. Check the washer before trying again.'}finally{submitting=false;await refresh()}});
-+refresh();setInterval(refresh,2000);
++for(const[key,name]of rows){const box=document.createElement('div');const caption=document.createElement('label');caption.textContent=name;const value=document.createElement('div');value.className='value';value.id='field-'+key;value.textContent='—';box.append(caption,value);el('fields').append(box)}
++function option(select,value,label){const o=document.createElement('option');o.value=value===null?'auto':String(value);o.textContent=label;select.append(o)}
++function chosen(){return catalogue?.programmes.find(p=>p.id===el('programme').value)}
++function showSettings(selection){const p=catalogue.programmes.find(p=>p.id===selection.programme);if(!p)return;el('programme').value=p.id;
++ for(const field of ['temperature','spin','drying'])el(field).replaceChildren();
++ for(const n of p.temperatures)option(el('temperature'),n,n===null?'Automatic':n===0?'Cold':n+' °C');
++ const spins=selection.drying==='off'?p.spins:p.spins.filter(n=>n===null||n>=1000);
++ for(const n of spins)option(el('spin'),n,n===null?'Automatic':n===0?'No spin':n+' rpm');
++ for(const d of p.drying)option(el('drying'),d,catalogue.drying.find(x=>x.id===d).label);
++ el('temperature').value=selection.temperatureC===null?'auto':String(selection.temperatureC);
++ el('spin').value=selection.spinRpm===null?'auto':String(selection.spinRpm);if(!el('spin').value)el('spin').selectedIndex=0;
++ el('drying').value=selection.drying;controls.slice(1).forEach(c=>c.disabled=false);
++}
++function readSettings(){return{programme:el('programme').value,temperatureC:el('temperature').value==='auto'?null:Number(el('temperature').value),spinRpm:el('spin').value==='auto'?null:Number(el('spin').value),drying:el('drying').value}}
++async function saveSettings(){if(!id){el('plan-message').textContent='Wait for the washer connection, then choose the programme again.';return}saving=true;controls.forEach(c=>c.disabled=true);el('start').disabled=true;
++ try{const r=await fetch('/programme/'+encodeURIComponent(id),{method:'POST',headers:{'Content-Type':'application/json','X-Rethink-Action':'programme'},body:JSON.stringify(readSettings())});const d=await r.json();if(!r.ok)throw new Error(d.error);el('plan-message').textContent='Prepared for the next wash.';startPlan=d.start}catch(error){el('plan-message').textContent=error.message;startPlan=undefined}finally{saving=false;controls.forEach(c=>c.disabled=false);await refresh()}}
++el('programme').addEventListener('change',()=>{const p=chosen();if(!p)return;showSettings({programme:p.id,...p.defaults});saveSettings()});
++for(const key of ['temperature','spin','drying'])el(key).addEventListener('change',()=>{if(key==='drying')showSettings(readSettings());saveSettings()});
++const time=n=>`${Math.floor(Number(n)/60)} h ${String(Number(n)%60).padStart(2,'0')} min`;
++async function refresh(){try{if(!id){const devices=await(await fetch('/washers',{cache:'no-store'})).json();if(devices.length!==1){el('connection').textContent='Waiting for washer';return}id=devices[0].id}const r=await fetch('/status/'+encodeURIComponent(id),{cache:'no-store'});const d=await r.json();startPlan=d.start;el('start').disabled=saving||submitting||!d.online||!startPlan?.enabled;el('connection').textContent=d.online?'Connected locally':'Offline';if(!d.online){el('status').textContent='Washer offline';return}
++ if(d.selection&&!saving&&!controls.includes(document.activeElement)){showSettings(d.selection);el('plan-message').textContent='Prepared for the next wash.'}
++ const p=d.properties||{};el('status').textContent=p.status||'Waiting for a status report';for(const[key]of rows)el('field-'+key).textContent=p[key]===undefined?'—':key.endsWith('_time')?time(p[key]):p[key];el('fresh').textContent=(p.last_status_at?'Last report: '+new Date(p.last_status_at).toLocaleTimeString('en-GB'):'Waiting for the washer to report its ready state.')+' · Remote Start: '+(p.remote_start==='ON'?'armed':'not armed');el('start').title=startPlan?.reason||'';if(!submitting)el('start-message').textContent=startPlan?.reason||''
++ }catch{startPlan=undefined;el('start').disabled=true;el('connection').textContent='Connection lost'}}
++el('start').addEventListener('click',async()=>{if(saving||submitting||!startPlan?.enabled)return;const revision=startPlan.revision;submitting=true;el('start').disabled=true;try{const r=await fetch('/start/'+encodeURIComponent(id),{method:'POST',headers:{'Content-Type':'application/json','X-Rethink-Action':'start'},body:JSON.stringify({revision})});const d=await r.json();el('start-message').textContent=d.error||d.message}catch{el('start-message').textContent='No response received. Check the washer before trying again.'}finally{submitting=false;await refresh()}});
++(async()=>{catalogue=await(await fetch('/programmes')).json();for(const p of catalogue.programmes)option(el('programme'),p.id,p.label);await refresh();setInterval(refresh,2000)})();
 +</script>
 +</html>
 diff --git a/management/index.ts b/management/index.ts
-index 3db5de4..df18c90 100644
+index 3db5de4..64cea94 100644
 --- a/management/index.ts
 +++ b/management/index.ts
 @@ -11,6 +11,7 @@ import { Bridge } from '@/bridge'
  import { Request, Response } from 'express'
  import { Device as T1Device } from '@/cloud/thinq1/device'
  import { Device as T2Device } from '@/cloud/thinq2/device'
-+import LocalWasher from '@/cloud/devices/Y_V8_F___W.B32QEUK'
++import LocalWasher, { PROGRAMMES, DRYING_CHOICES } from '@/cloud/devices/Y_V8_F___W.B32QEUK'
  
  // refresh bridged device names policy:
  // - only if a websocket subscriber is connected
-@@ -358,6 +359,48 @@ export function app(ha: HA_bridge, manager: DeviceManager, bridge: Bridge | unde
+@@ -358,6 +359,66 @@ export function app(ha: HA_bridge, manager: DeviceManager, bridge: Bridge | unde
          }, next)
      })
  
 +    // Local trial's read-only view of properties already reported by the appliance.
++    app.get('/programmes',(_req,res)=>res.json({programmes:PROGRAMMES,drying:DRYING_CHOICES}))
 +    app.get('/washers',(_req,res)=>{
 +        res.setHeader('Cache-Control','no-store')
 +        res.json(Object.values(manager.allDevices)
@@ -59,7 +85,24 @@ index 3db5de4..df18c90 100644
 +        res.setHeader('Cache-Control','no-store')
 +        if (!dev) {res.status(404).json({online:false});return}
 +        res.json({online:true,model:dev.meta.modelId,properties:Object.fromEntries(mapped?.publishCache ?? []),
++            selection:mapped instanceof LocalWasher ? mapped.getSelection() : undefined,
 +            start:mapped instanceof LocalWasher ? mapped.previewStart() : undefined})
++    })
++
++    app.post('/programme/:deviceId',(req,res)=>{
++        const origin=req.get('origin')
++        if(req.get('X-Rethink-Action')!=='programme'||!req.is('application/json')||
++            (origin&&origin!==`${req.protocol}://${req.get('host')}`)){
++            res.status(403).json({error:'Use the local programme interface.'});return
++        }
++        const mapped=ha.haDevices.get(req.params.deviceId)
++        if(!manager.allDevices[req.params.deviceId]||!(mapped instanceof LocalWasher)){
++            res.status(409).json({error:'The washer is offline.'});return
++        }
++        try{
++            const selection=mapped.selectProgramme(req.body)
++            res.json({selection,start:mapped.previewStart(),message:'Settings prepared for the next wash. No command sent to the washer.'})
++        }catch(error){res.status(422).json({error:error instanceof Error?error.message:'Invalid programme settings.'})}
 +    })
 +
 +    app.post('/start/:deviceId',(req,res)=>{
@@ -92,10 +135,10 @@ index 3db5de4..df18c90 100644
      const server = app.createServer()
 diff --git a/tests/management/washer-start.test.ts b/tests/management/washer-start.test.ts
 new file mode 100644
-index 0000000..354ca49
+index 0000000..039934e
 --- /dev/null
 +++ b/tests/management/washer-start.test.ts
-@@ -0,0 +1,43 @@
+@@ -0,0 +1,56 @@
 +import assert from 'node:assert/strict'
 +import { EventEmitter, once } from 'node:events'
 +import type { AddressInfo } from 'node:net'
@@ -121,11 +164,24 @@ index 0000000..354ca49
 +    const base=`http://127.0.0.1:${(server.address() as AddressInfo).port}`
 +    try{
 +        assert.equal((await fetch(base+'/washer')).status,200)
-+        const status=await (await fetch(base+'/status/fake-washer')).json() as any
++        let status=await (await fetch(base+'/status/fake-washer')).json() as any
 +        assert.equal(status.start.enabled,true)
-+        assert.equal(status.properties.drying_mode,'On (automatic)')
++        assert.equal(status.properties.drying_mode,'Cupboard')
 +        assert.equal((await fetch(base+'/start/fake-washer')).status,404)
 +        assert.equal(fake.outbox.length,0)
++
++        const catalogue=await(await fetch(base+'/programmes')).json() as any
++        assert.ok(catalogue.programmes.some((p:any)=>p.id==='wash-dry'))
++        const planned=await fetch(base+'/programme/fake-washer',{method:'POST',headers:{'Content-Type':'application/json','X-Rethink-Action':'programme',Origin:base},body:JSON.stringify({programme:'wash-dry',temperatureC:40,spinRpm:1400,drying:'cupboard'})})
++        assert.equal(planned.status,200)
++        const selected=await planned.json() as any
++        assert.equal(selected.start.command,'f02613030a04010200000000030000000000')
++        assert.equal(fake.outbox.length,0,'selecting a programme cannot actuate the washer')
++        const invalid=await fetch(base+'/programme/fake-washer',{method:'POST',headers:{'Content-Type':'application/json','X-Rethink-Action':'programme',Origin:base},body:JSON.stringify({programme:'hand-wool',drying:'cupboard'})})
++        assert.equal(invalid.status,422)
++        assert.equal(fake.outbox.length,0)
++        washer.selectProgramme({programme:'cotton',drying:'cupboard'})
++        status.start=washer.previewStart()
 +        const options={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:status.start.revision})}
 +        assert.equal((await fetch(base+'/start/fake-washer',options)).status,403)
 +        assert.equal((await fetch(base+'/start/fake-washer',{...options,headers:{...options.headers,'X-Rethink-Action':'start',Origin:'https://unrelated.example'}})).status,403)

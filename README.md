@@ -80,21 +80,40 @@ when existing routing/DNS is suitable.
 
 ## Start, when you actually want a cycle
 
-Choose the programme and options on the machine, load it and add detergent,
-then arm Remote Start by holding Add Item for three seconds. Review the current
-settings on the local page and deliberately click **Start selected programme**.
-Fresh standby settings are required, and downloaded programmes are not yet
-supported. The page reports transmission separately from the machine's state.
+Load the machine, power it on and arm Remote Start by holding Add Item for
+three seconds. Choose the programme, temperature, spin speed and drying in the
+local page's **Next wash** form, then deliberately click **Start selected programme**.
+The dial does not need to be used to choose the programme. The page keeps the
+planned settings separate from what the washer currently reports.
 
-The implementation sends the programme-preserving B32 `F026` form, with the
-reported temperature, spin, rinse, soil, drying and delayed-end settings. It
-does not send the default-programme `F02405` shortcut, issue a wake command,
-automatically retry, or implement pause. A stale or changed selection is refused.
-Actual acceptance by this model is unverified until an authorised real-cycle test.
+A local agent or future voice client can use the same interface:
 
-The software's default operational tools have **no Start command**. Their only
-hardware-related workflow is passive observation/pairing; they never call the
-Start HTTP route. Automated tests use fake transports and synthetic fixtures.
+```sh
+node skills/lg-fwy916wbtn1/scripts/control.mjs plan --programme wash-dry --temperature 40 --spin 1400 --drying cupboard
+```
+
+That only prepares the cycle. To actually start it after an explicit user request:
+
+```sh
+node skills/lg-fwy916wbtn1/scripts/control.mjs start --programme wash-dry --temperature 40 --spin 1400 --drying cupboard
+```
+
+`status` and `catalogue` are also available. The client refuses Start unless the
+reported machine is in error-free standby with Remote Start armed. It does not
+wake or arm the machine remotely and does not automatically retry. No voice
+platform is bundled yet; the API/client is the integration point.
+
+The programme catalogue includes Wash+Dry, Cotton, Eco 40-60, TurboWash 39,
+Mixed Fabric, Easy Care, Allergy Care, AI Wash, Delicates, Hand/Wool, Speed 14,
+Dry Only and Tub Clean. Temperature/spin/drying choices are constrained by the
+model's manual. Programme IDs and some drying codes follow the related B32
+family: **actual cycle execution remains unverified on this exact unit**.
+
+The direct API is `GET /programmes`, `POST /programme/<id>` to prepare the
+settings and obtain a revision, then `POST /start/<id>` with that revision to
+actuate. Selecting a cycle never sends a command to the appliance. The software
+uses the B32 F026 form, not the default-programme F02405 shortcut. Automated
+verification uses only fake transports and synthetic fixtures.
 
 ## Reproducibility, updates and rollback
 
