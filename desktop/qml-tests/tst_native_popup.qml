@@ -23,6 +23,7 @@ Item {
     PlasmaCore.AppletPopup {
         id: popup
         animated: true
+        removeBorderStrategy: PlasmaCore.AppletPopup.AtScreenEdges | PlasmaCore.AppletPopup.AtPanelEdges
         visualParent: anchor
         popupDirection: Qt.TopEdge
         hideOnWindowDeactivate: true

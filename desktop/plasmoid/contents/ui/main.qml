@@ -89,6 +89,10 @@ PlasmoidItem {
         id: popup
         animated: true
         visualParent: root
+        // Match panel applets: join the panel without a facing border/shadow.
+        floating: false
+        margin: 0
+        removeBorderStrategy: PlasmaCore.AppletPopup.AtScreenEdges | PlasmaCore.AppletPopup.AtPanelEdges
         hideOnWindowDeactivate: true
         popupDirection: Plasmoid.location === PlasmaCore.Types.TopEdge ? Qt.BottomEdge
             : Plasmoid.location === PlasmaCore.Types.LeftEdge ? Qt.RightEdge
