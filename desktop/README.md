@@ -21,9 +21,16 @@ python desktop/install.py
 
 The installer copies the app into your user data directory, adds **Washer
 Monitor** to the application menu and starts it quietly at KDE login. Click the
-washer icon to see details; right-click for refresh, settings, notification mute,
-a labelled test notification and Quit. Closing the details window leaves the
-tray running. Launching it again reuses the existing instance.
+thin black washer icon to toggle a compact popup beside the tray. Click outside
+or press Escape to dismiss it. Recent alerts expand on request. Right-click for
+refresh, settings, notification mute, a labelled test notification and Quit.
+Dismissing the popup leaves monitoring running. Launching it again reuses the
+existing instance.
+
+The popup has no title bar or taskbar window. It anchors beside the tray's panel
+edge and stays within the screen's available area. Positioning and click-away
+behaviour are verified on KDE/X11; exact placement on Wayland depends on the
+compositor's support for application-positioned popups.
 
 The app defaults to `http://127.0.0.1:44401`. Change the server address and optional
 device ID in Settings. With exactly one connected washer, discovery is automatic.

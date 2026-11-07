@@ -8,8 +8,8 @@ import sys
 import time
 from urllib.parse import quote, urlsplit
 
-from PyQt6.QtCore import QLockFile, QProcess, QStandardPaths, QTimer, QUrl, Qt
-from PyQt6.QtGui import QAction, QColor, QDesktopServices, QFont, QIcon, QPainter, QPen, QPixmap
+from PyQt6.QtCore import QLockFile, QPoint, QRect, QProcess, QStandardPaths, QTimer, QUrl, Qt
+from PyQt6.QtGui import QAction, QCursor, QDesktopServices, QFont, QIcon
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket, QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PyQt6.QtWidgets import (
     QApplication, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout,
@@ -59,42 +59,54 @@ def duration(value):
 
 
 def status_icon(state, problem=False):
-    colour = "#df6b56" if problem else "#e9a23b" if state == "Drying" else "#37a77d" if state == "Finished" else "#3badd3" if state in ACTIVE else "#8a99a6"
-    pixmap = QPixmap(64, 64)
-    pixmap.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    painter.setPen(QPen(QColor(colour), 5))
-    painter.drawRoundedRect(10, 5, 44, 54, 7, 7)
-    painter.drawLine(13, 20, 51, 20)
-    painter.drawEllipse(19, 26, 26, 26)
-    painter.setBrush(QColor(colour))
-    painter.drawEllipse(41, 11, 3, 3)
-    painter.end()
-    return QIcon(pixmap)
+    # Intentionally monochrome in every state; status belongs in the popup/tooltip.
+    return QIcon(str(ICON))
+
+
+def popup_position(anchor, size, available):
+    """Place beside the nearest panel edge, clamped to this screen's work area."""
+    point = anchor.center()
+    edge = min((abs(point.x() - available.left()), "left"),
+               (abs(point.x() - available.right()), "right"),
+               (abs(point.y() - available.top()), "top"),
+               (abs(point.y() - available.bottom()), "bottom"))[1]
+    x = point.x() - size.width() // 2
+    y = point.y() - size.height() // 2
+    gap = 4
+    if edge == "bottom":
+        y = available.bottom() - size.height() - gap + 1
+    elif edge == "top":
+        y = available.top() + gap
+    elif edge == "left":
+        x = available.left() + gap
+    else:
+        x = available.right() - size.width() - gap + 1
+    return QPoint(max(available.left(), min(x, available.right() - size.width() + 1)),
+                  max(available.top(), min(y, available.bottom() - size.height() + 1)))
 
 
 class Details(QDialog):
     def __init__(self, controller):
-        super().__init__()
+        super().__init__(None, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self.dismissed_at = float("-inf")
         self.setWindowTitle("Washer Monitor")
         self.setWindowIcon(QIcon(str(ICON)))
-        self.setMinimumWidth(430)
+        self.setFixedWidth(400)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 20)
-        layout.setSpacing(12)
+        layout.setContentsMargins(18, 16, 18, 14)
+        layout.setSpacing(9)
         self.connection = QLabel("Connecting to local Rethink…")
         self.stage = QLabel("Waiting for washer")
         font = QFont(self.font())
-        font.setPointSize(24)
-        font.setBold(True)
+        font.setPointSize(20)
         self.stage.setFont(font)
         self.settings = QLabel("No machine report yet")
         self.settings.setWordWrap(True)
         self.estimate = QLabel("Machine estimate: not reported")
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
-        self.progress.setFormat("%p% of reported duration")
+        self.progress.setTextVisible(False)
+        self.progress.setFixedHeight(6)
         self.progress.hide()
         self.report = QLabel("Last machine report: none")
         self.report.setWordWrap(True)
@@ -104,20 +116,24 @@ class Details(QDialog):
         for widget in (self.connection, self.stage, self.settings, self.estimate, self.progress, self.report, self.warning):
             widget.setTextFormat(Qt.TextFormat.PlainText) if isinstance(widget, QLabel) else None
             layout.addWidget(widget)
-        layout.addWidget(QLabel("Recent events"))
         self.events = QTextBrowser()
-        self.events.setMinimumHeight(125)
-        self.events.setMaximumHeight(190)
+        self.events.setFixedHeight(120)
+        self.events.hide()
         layout.addWidget(self.events)
         buttons = QHBoxLayout()
-        for label, callback in (("Open washer page", controller.open_page), ("Refresh", controller.poll), ("Settings…", controller.settings)):
+        for label, callback in (("Open washer page", controller.open_page), ("Settings…", controller.settings)):
             button = QPushButton(label)
             button.clicked.connect(callback)
             buttons.addWidget(button)
+        self.history_button = QPushButton("Recent alerts")
+        self.history_button.setCheckable(True)
+        self.history_button.toggled.connect(lambda visible: (self.events.setVisible(visible), QTimer.singleShot(0, controller.position_popup)))
+        buttons.insertWidget(1, self.history_button)
         layout.addLayout(buttons)
-        footnote = QLabel("Read-only monitor · closing this window keeps the tray icon running")
-        footnote.setWordWrap(True)
-        layout.addWidget(footnote)
+
+    def hideEvent(self, event):
+        self.dismissed_at = time.monotonic()
+        super().hideEvent(event)
 
 
 class Controller:
@@ -139,6 +155,7 @@ class Controller:
         self.processes = []
         self.last_saved = None
         self.network = QNetworkAccessManager(app)
+        self.popup_anchor = None
         self.details = Details(self)
         self.tray = QSystemTrayIcon(status_icon("Unknown"), app)
         self.tray.setToolTip("Washer Monitor · connecting")
@@ -159,7 +176,7 @@ class Controller:
         menu.addSeparator()
         menu.addAction("Quit monitor", app.quit)
         self.tray.setContextMenu(menu)
-        self.tray.activated.connect(lambda reason: self.show() if reason in {QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.DoubleClick} else None)
+        self.tray.activated.connect(self.tray_activated)
         self.tray.messageClicked.connect(self.show)
         self.tray.show()
         self.timer = QTimer(app)
@@ -194,11 +211,38 @@ class Controller:
             handle()
 
     def show(self):
+        self.position_popup()
         self.details.show()
         self.details.raise_()
         self.details.activateWindow()
 
+    def tray_activated(self, reason):
+        if reason != QSystemTrayIcon.ActivationReason.Trigger:
+            return
+        if self.details.isVisible():
+            self.details.hide()
+        elif time.monotonic() - self.details.dismissed_at > 0.25:
+            # A tray click also dismisses Qt's popup as an outside click. Do not
+            # reopen it again for the same click after Qt has hidden it.
+            position = QCursor.pos()
+            self.popup_anchor = QRect(position.x(), position.y(), 1, 1)
+            self.show()
+
+    def position_popup(self):
+        tray_rect = self.tray.geometry()
+        anchor = tray_rect if tray_rect.isValid() else self.popup_anchor
+        screen = self.app.screenAt(anchor.center()) if anchor is not None else self.app.primaryScreen()
+        screen = screen or self.app.primaryScreen()
+        available = screen.availableGeometry()
+        if anchor is None:
+            # Menu/launcher invocation before the first tray click: use the panel corner.
+            point = available.bottomRight()
+            anchor = QRect(point.x(), point.y(), 1, 1)
+        self.details.adjustSize()
+        self.details.move(popup_position(anchor, self.details.size(), available))
+
     def open_page(self):
+        self.details.hide()
         QDesktopServices.openUrl(QUrl(self.config["base"] + "/washer"))
 
     def toggle_notifications(self, enabled):
@@ -319,7 +363,7 @@ class Controller:
         if stamp is not None:
             age = max(0, int(time.time() - stamp))
             report = datetime.fromtimestamp(stamp).astimezone().strftime("%H:%M:%S") + f" ({age // 60} min ago)"
-        self.details.report.setText("Last machine report: " + report + "\nTime is the last reported estimate, not a live countdown.")
+        self.details.report.setText("Updated " + report + "\nRead-only · times are machine estimates")
         if p.get("error_code", 0) != 0:
             problem = f"Machine error code: {p['error_code']}. Check the washer's display."
         self.details.warning.setText(problem or "")
@@ -329,9 +373,12 @@ class Controller:
         self.summary_action.setText(label)
         self.tray.setToolTip("Washer Monitor\n" + label + "\n" + settings + ("\n" + problem if problem else ""))
         self.tray.setIcon(status_icon(state, bool(problem)))
+        if self.details.isVisible():
+            self.position_popup()
 
     def settings(self):
-        dialog = QDialog(self.details)
+        self.details.hide()
+        dialog = QDialog()
         dialog.setWindowTitle("Washer Monitor settings")
         layout = QFormLayout(dialog)
         address = QLineEdit(self.config["base"])

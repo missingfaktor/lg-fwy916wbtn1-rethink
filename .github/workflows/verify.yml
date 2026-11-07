@@ -18,5 +18,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update
-      - run: sudo apt-get install --no-install-recommends -y python3-pyqt6 libqt6svg6
-      - run: dbus-run-session -- /usr/bin/python3 desktop/smoke_test.py
+      - run: sudo apt-get install --no-install-recommends -y python3-pyqt6 libqt6svg6 xvfb xauth libxcb-cursor0
+      - run: dbus-run-session -- xvfb-run -a env WASHER_MONITOR_TEST_PLATFORM=xcb /usr/bin/python3 desktop/smoke_test.py
