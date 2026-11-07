@@ -44,6 +44,11 @@ implementation and its regression tests.
 
 ## Start
 
+On 7 November 2026, an explicitly requested Cotton start with 30 °C, 800 rpm and
+drying off was observed entering Detecting and then Washing, with matching
+reported settings and error code zero. This establishes acceptance of that
+specific start, not completion or execution of other programmes/drying modes.
+
 The implementation uses the programme-preserving B32 `WMStart` form from
 upstream `Y_V8_Y___W.B32QEUK.programmeCommand`, with this washer-dryer's reported
 drying level carried through instead of the wash-only sibling's hardcoded zero.

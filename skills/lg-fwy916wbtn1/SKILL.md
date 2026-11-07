@@ -7,8 +7,9 @@ description: Set up, inspect, update, or troubleshoot local Rethink support for 
 
 This package adds support for internal model `Y_V8_F___W.B32QEUK` to a pinned
 Rethink checkout. Its status decoder has been checked against a real panel.
-Start is implemented and tested against a fake transport, but has **not** been
-verified by running a real cycle. Keep that distinction in reports to users.
+Start is tested against a fake transport. A real Cotton start at 30 °C / 800 rpm,
+drying off, has been observed entering detection and washing; other programme
+starts and drying execution remain unverified. Keep that distinction in reports.
 
 ## Scope and machine actions
 
@@ -91,6 +92,15 @@ scripts and patches. Then repeat `prepare`, `verify`, `configure`, and `up` for
 the existing runtime directory. New source versions get a separate checkout;
 the data directory, certificates and runtime configuration are preserved.
 Do not reset a user's changed checkout or erase old runtime state to force an update.
+
+## Optional KDE tray monitor
+
+The source repository also contains `desktop/`, a read-only Qt tray client with
+notifications and KDE login autostart. It is installed separately using
+`python desktop/install.py` from a checkout of the repository. It is not bundled
+in a copied skill installation. Read `desktop/README.md` there for dependencies,
+notification thresholds, installation, updates and removal. It never starts or
+changes the washer, and does not require a server restart.
 
 ## Diagnose or extend
 

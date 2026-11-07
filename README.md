@@ -4,8 +4,9 @@ Connect the LG FWY916WBTN1 washer-dryer to a local Rethink server, read its
 settings, and prepare a Start command that preserves the selected programme
 and drying level. Internal ThinQ model: `Y_V8_F___W.B32QEUK`.
 
-**Status decoding is panel-verified. Start is implemented and tested offline;
-it has not been validated by running a real cycle on this exact model.**
+**Status decoding is panel-verified. A Cotton start at 30 °C / 800 rpm with
+drying off has been observed entering load detection and washing on this model.
+Other programme starts and drying execution remain unverified.**
 Installing this package, opening its page, or polling status never starts a wash.
 
 ## What this is
@@ -107,13 +108,29 @@ The programme catalogue includes Wash+Dry, Cotton, Eco 40-60, TurboWash 39,
 Mixed Fabric, Easy Care, Allergy Care, AI Wash, Delicates, Hand/Wool, Speed 14,
 Dry Only and Tub Clean. Temperature/spin/drying choices are constrained by the
 model's manual. Programme IDs and some drying codes follow the related B32
-family: **actual cycle execution remains unverified on this exact unit**.
+family: **execution beyond the observed Cotton wash remains unverified**.
 
 The direct API is `GET /programmes`, `POST /programme/<id>` to prepare the
 settings and obtain a revision, then `POST /start/<id>` with that revision to
 actuate. Selecting a cycle never sends a command to the appliance. The software
 uses the B32 F026 form, not the default-programme F02405 shortcut. Automated
 verification uses only fake transports and synthetic fixtures.
+
+## KDE system tray monitor
+
+The optional [Washer Monitor](desktop/README.md) shows the reported cycle and
+remaining-time estimate in KDE's system tray. It notifies about drying,
+completion, errors, prolonged pauses, lost contact and possible stalls. It only
+reads status and lives outside Rethink; no server restart is needed.
+
+```sh
+python desktop/install.py
+~/.local/bin/lg-washer-monitor --show
+```
+
+Requires PyQt6 and `notify-send`. Installation is per user, with KDE login
+autostart. Missing reports are distinguished from possible stalls, and both
+thresholds are adjustable. See the desktop guide for update/removal instructions.
 
 ## Reproducibility, updates and rollback
 
