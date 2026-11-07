@@ -1,13 +1,16 @@
-# KDE washer tray monitor
+# KDE washer monitor
 
-A native Qt system-tray app for the existing local Rethink API. It uses **GET
-requests only**. It cannot start, stop, pause, arm or change the washer. This is
-a standalone desktop client outside Rethink, in the same repository as the model
-support. The currently running server does not need restarting or updating.
+A native Plasma tray widget and a local notification process for the existing
+Rethink API. The background process uses **GET requests only** and shares a small
+cached status snapshot over the user's session D-Bus. The widget does not poll
+the washer or add any server requests. Neither part can start, stop, pause, arm
+or change the washer. Both live outside Rethink in this repository; the running
+appliance server does not need restarting or updating.
 
 ## Install
 
-Requires Python 3.10+, PyQt6 (Widgets and Network) and `notify-send`/libnotify.
+Requires KDE Plasma (tested with 6.6), `kpackagetool6`, Python 3.10+, PyQt6
+(Widgets, Network and D-Bus) and `notify-send`/libnotify.
 Use your distribution's packages, for example `python3-pyqt6 libnotify-bin` on
 Debian/Ubuntu or `python-pyqt6 libnotify` on Arch. No pip packages are downloaded
 by the installer.
@@ -19,18 +22,29 @@ python desktop/install.py
 ~/.local/bin/lg-washer-monitor --show
 ```
 
-The installer copies the app into your user data directory, adds **Washer
-Monitor** to the application menu and starts it quietly at KDE login. Click the
+The installer copies the background app into your user data directory, installs
+the Plasma applet, adds **Washer Monitor** to the application menu and starts
+the notification process quietly at KDE login. Click the
 thin black washer icon to toggle a compact popup beside the tray. Click outside
 or press Escape to dismiss it. Recent alerts expand on request. Right-click for
 refresh, settings, notification mute, a labelled test notification and Quit.
 Dismissing the popup leaves monitoring running. Launching it again reuses the
 existing instance.
 
-The popup has no title bar or taskbar window. It anchors beside the tray's panel
-edge and stays within the screen's available area. Positioning and click-away
-behaviour are verified on KDE/X11; exact placement on Wayland depends on the
-compositor's support for application-positioned popups.
+The popup uses Plasma's `AppletPopup`, with native slide-in/slide-out animations,
+theme shadow, background and Kirigami typography. It has no title bar, header
+divider or taskbar window. Plasma positions it relative to the icon, handles
+click-away dismissal, and honours the desktop's animation settings. It does not
+inherit the system tray's large shared popup size.
+
+`--show` asks the widget to open using the session display bridge. In native
+mode the Python process has no separate tray icon or status window. The bridge
+exports display/preferences actions only, not appliance controls. Its Snapshot
+omits raw packets and device identifiers; ViewStatus provides basic UI health
+information for troubleshooting.
+
+For a non-Plasma desktop, `python desktop/install.py --legacy-tray` retains the
+standalone Qt tray. This fallback does not provide Plasma's styling/animation.
 
 The app defaults to `http://127.0.0.1:44401`. Change the server address and optional
 device ID in Settings. With exactly one connected washer, discovery is automatic.
@@ -64,8 +78,10 @@ is asleep; there is no background cloud service.
 ## Update or remove
 
 Quit the monitor, update this repository, rerun `python desktop/install.py`, then
-launch it again. Preferences and history are preserved. Updating the agent skill
-alone does not update this optional desktop app.
+launch it again. Preferences and history are preserved. Plasma may retain a
+loaded QML component after an applet update; logging out/in or restarting the
+Plasma shell loads the new component. The installer does not restart the shell
+automatically. Updating the agent skill alone does not update this desktop app.
 
 ```sh
 python desktop/install.py --uninstall
@@ -81,9 +97,12 @@ if desired. Installed source lives under `$XDG_DATA_HOME/lg-washer-monitor`.
 `python -m unittest discover -s tests` includes synthetic notification transition,
 stale-report, reconnect and restart tests without Qt or a real appliance.
 `python desktop/smoke_test.py` additionally checks the actual Qt window, tray menu
-and HTTP GET path against a fake server when PyQt6 is installed. It suppresses
+and HTTP GET path/display snapshot against a fake server when PyQt6 is installed. It suppresses
 desktop notifications and never contacts a real appliance.
 `PYTHONPATH=desktop python -m washer_monitor --show` runs directly from source.
+`xvfb-run -a /usr/lib/qt6/bin/qmltestrunner -input desktop/qml-tests` checks the
+native popup's lifecycle, compact size and Escape dismissal with synthetic data
+when the Plasma/Kirigami QML modules and Qt Quick Test tools are installed.
 See [Qt's tray documentation](https://doc.qt.io/qt-6/qsystemtrayicon.html), the
 [desktop notification specification](https://specifications.freedesktop.org/notification/latest/)
 and [login autostart specification](https://specifications.freedesktop.org/autostart/latest/).

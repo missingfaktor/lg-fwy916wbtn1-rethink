@@ -1,0 +1,18 @@
+{
+    "KPlugin": {
+        "Id": "io.github.missingfaktor.washer-monitor",
+        "Name": "Washer Monitor",
+        "Description": "Local washer status with drying, completion and attention alerts",
+        "Icon": "washer-monitor",
+        "Category": "System Information",
+        "Authors": [{"Name": "missingfaktor"}],
+        "Version": "1.0.0",
+        "EnabledByDefault": true,
+        "License": "GPL-2.0"
+    },
+    "KPackageStructure": "Plasma/Applet",
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "X-Plasma-NotificationArea": true,
+    "X-Plasma-NotificationAreaCategory": "Hardware",
+    "X-Plasma-DBusActivationService": "io.github.missingfaktor.LGWasherMonitor.Monitor"
+}

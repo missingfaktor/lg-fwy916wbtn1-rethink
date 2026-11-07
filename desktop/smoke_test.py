@@ -75,6 +75,9 @@ def main():
         assert "800 rpm" in controller.details.settings.text()
         assert "Drying: Off" in controller.details.settings.text()
         assert controller.menu.actions(), "Tray context menu was lost"
+        exported = json.loads(controller.desktop_bus.Snapshot)
+        assert exported["status"] == "Washing" and exported["remaining"] == 53
+        assert "raw_packet" not in exported and "device" not in exported
         for stage in ("Drying", "Finished"):
             payload["properties"].update(status=stage, last_status_at=datetime.now(timezone.utc).isoformat())
             controller.poll()
@@ -126,6 +129,7 @@ def main():
         assert all(method == "GET" for method, _ in requests), requests
         controller.timer.stop()
         controller.server.close()
+        controller.desktop_bus.close()
         QLocalServer.removeServer(module.APP_ID)
         controller.tray.hide()
         controller.details.close()

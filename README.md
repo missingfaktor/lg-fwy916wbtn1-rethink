@@ -119,7 +119,8 @@ verification uses only fake transports and synthetic fixtures.
 ## KDE system tray monitor
 
 The optional [Washer Monitor](desktop/README.md) shows the reported cycle and
-remaining-time estimate in KDE's system tray. It notifies about drying,
+remaining-time estimate in a native Plasma tray popup, with the desktop's
+slide animations, shadow and typography. It notifies about drying,
 completion, errors, prolonged pauses, lost contact and possible stalls. It only
 reads status and lives outside Rethink; no server restart is needed.
 

@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .monitor import ACTIVE, Monitor, Notice, report_time
+from .desktop_bus import DesktopBus, SERVICE
 
 APP_ID = "io.github.missingfaktor.LGWasherMonitor"
 ICON = Path(__file__).with_name("washer.svg")
@@ -139,6 +140,8 @@ class Details(QDialog):
 class Controller:
     def __init__(self, app, options):
         self.app = app
+        self.background = getattr(options, "background", False)
+        self.show_serial = 0
         self.config_path = Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.GenericConfigLocation)) / "lg-washer-monitor/config.json"
         self.state_path = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "lg-washer-monitor/state.json"
         self.config = DEFAULTS | read_json(self.config_path, {})
@@ -178,7 +181,10 @@ class Controller:
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(self.tray_activated)
         self.tray.messageClicked.connect(self.show)
-        self.tray.show()
+        if not self.background:
+            self.tray.show()
+        self.desktop_bus = DesktopBus(self, SERVICE if APP_ID == "io.github.missingfaktor.LGWasherMonitor" else APP_ID + ".Monitor")
+        self.app.aboutToQuit.connect(self.desktop_bus.close)
         self.timer = QTimer(app)
         self.timer.timeout.connect(self.poll)
         self.timer.start(10000)
@@ -211,6 +217,10 @@ class Controller:
             handle()
 
     def show(self):
+        if self.background:
+            self.show_serial += 1
+            self.desktop_bus.changed.emit()
+            return
         self.position_popup()
         self.details.show()
         self.details.raise_()
@@ -425,6 +435,7 @@ class Controller:
 def main():
     parser = argparse.ArgumentParser(description="Read-only LG washer tray monitor")
     parser.add_argument("--show", action="store_true", help="Open status details")
+    parser.add_argument("--background", action="store_true", help="Use the native Plasma widget for display, keeping this process for status and alerts")
     parser.add_argument("--base", help="Local Rethink management root URL")
     parser.add_argument("--test-notification", action="store_true", help="Send an explicitly labelled desktop notification test")
     options = parser.parse_args()
